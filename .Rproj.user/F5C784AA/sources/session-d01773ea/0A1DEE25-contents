@@ -1,0 +1,225 @@
+---
+title: "QQQ7年数据统计"
+author: "Huiting"
+date: "2023-10-21"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## R Markdown
+
+#This is the code to count the time to reach first highest or lowest point vs Amplitude
+```{r include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+library(readr)  
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(tidyr)
+library(magrittr)  
+library(purrr)
+
+folder_path <- "G://trading/QQQ/"
+
+all_files <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+
+all_data <- map_df(all_files, read_csv)
+
+library(data.table)
+
+all_data <- as.data.table(all_data)
+
+all_data <- all_data[hour(Timestamp) >= 9 & (hour(Timestamp) < 16 | (hour(Timestamp) == 16 & minute(Timestamp) == 0))]
+
+setorder(all_data, Timestamp)
+
+# 计算每日的最大和最小振幅及到达时间
+results <- all_data %>%
+  arrange(Timestamp) %>%
+  group_by(Date = as.Date(Timestamp)) %>%
+  summarise(
+    MaxAmplitude = max(pmax((High - first(Open)) / first(Open) * 100, 
+                            (first(Open) - Low) / first(Open) * 100, na.rm = TRUE)),  # 计算振幅
+    TimeToReach = which.max(pmax((High - first(Open)) / first(Open) * 100, 
+                                 (first(Open) - Low) / first(Open) * 100, na.rm = TRUE))  # 计算到达最大振幅所需的时间
+  ) %>%
+  filter(MaxAmplitude >= 0, MaxAmplitude <= 3)
+  
+
+library(plotly)
+#散点图
+plot <- plot_ly(
+  data = results,  
+  x = ~MaxAmplitude,
+  y = ~TimeToReach,
+  text = ~paste('Amplitude: ', MaxAmplitude, '%<br>Time to Reach: ', TimeToReach, ' mins'),  # 创建悬停文本
+  type = 'scatter',
+  mode = 'markers'
+)
+
+# 添加轴标签和标题
+plot <- layout(
+  plot,
+  title = "Time to Reach First Highest or Lowest Point vs Amplitude",
+  xaxis = list(title = "Amplitude (%)"),
+  yaxis = list(title = "Minutes to Reach")
+)
+
+plot
+```
+
+## This is Gap fill percentage analysis
+
+#This is my code
+```{r include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+library(data.table)
+library(plotly)
+library(purrr)
+library(readr)
+library(magrittr)
+library(tidyr)
+library(dplyr)
+
+folder_path <- "G://trading/QQQ/"
+rds_file <- "G://trading/QQQ/all_data.rds"
+
+# 检查是否rds文件存在
+if (file.exists(rds_file)) {
+  all_data <- readRDS(rds_file)
+} else {
+  all_files <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+  
+  all_data <- map_df(all_files, read_csv)
+  
+  saveRDS(all_data, rds_file)
+}
+
+all_data <- as.data.table(all_data)
+
+# 使用data.table语法过滤特定时间范围内的数据
+all_data <- all_data[hour(Timestamp) >= 9 & (hour(Timestamp) < 16 | (hour(Timestamp) == 16 & minute(Timestamp) == 0))]
+
+setorder(all_data, Timestamp)
+
+daily_data <- all_data[, list(
+  Open = Open[1],
+  High = max(High),
+  Low = min(Low),
+  Close = Close[.N]
+), by = .(Date = as.Date(Timestamp))]
+
+daily_data[, Gap := shift(Close, type = "lag") - Open]
+daily_data[, GapSizePercentage := (Gap / shift(Close, type = "lag")) * 100]
+daily_data[, GapFillPercentage := dplyr::case_when(
+  Gap > 0 ~ (Low - Open) / Gap * 100,
+  Gap < 0 ~ (High - Open) / abs(Gap) * 100,
+  TRUE ~ NA_real_
+)]
+
+daily_data <- daily_data[abs(GapSizePercentage) > 0.1& abs(GapSizePercentage) <2, ]
+
+
+daily_data <- daily_data[!is.na(GapFillPercentage)]
+
+# Create interactive scatter plot using plotly
+plot <- plot_ly(
+  daily_data,
+  x = ~GapSizePercentage,
+  y = ~GapFillPercentage,
+  text = ~paste("Date: ", Date, "<br>Gap Size %: ", round(GapSizePercentage, 2),
+                "<br>Gap Fill %: ", round(GapFillPercentage, 2)),
+  mode = "markers",
+  type = 'scatter',
+  marker = list(size = 10, opacity = 0.5, color = 'rgba(0, 100, 200, 0.6)')
+) %>%
+  layout(
+    title = "Gap Size Percentage vs Gap Fill Percentage",
+    xaxis = list(title = "Gap Size Percentage"),
+    yaxis = list(title = "Gap Fill Percentage")
+  )
+
+plot
+```
+
+```{r include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+library(data.table)
+library(plotly)
+library(purrr)
+library(readr)
+library(magrittr)
+library(tidyr)
+library(dplyr)
+
+folder_path <- "G://trading/QQQ/"
+rds_file <- "G://trading/QQQ/all_data.rds"
+
+
+if (file.exists(rds_file)) {
+  all_data <- readRDS(rds_file)
+} else {
+  all_files <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+  
+
+  all_data <- map_df(all_files, read_csv)
+  
+  saveRDS(all_data, rds_file)
+}
+
+
+all_data <- as.data.table(all_data)
+
+all_data <- all_data[hour(Timestamp) >= 9 & (hour(Timestamp) < 16 | (hour(Timestamp) == 16 & minute(Timestamp) == 0))]
+
+setorder(all_data, Timestamp)
+
+daily_data <- all_data[, list(
+  Open = Open[1],
+  High = max(High),
+  Low = min(Low),
+  Close = Close[.N]
+), by = .(Date = as.Date(Timestamp))]
+
+
+daily_data[, Gap := shift(Close, type = "lag") - Open]
+daily_data[, GapSizePercentage := (Gap / shift(Close, type = "lag")) * 100]
+daily_data[, GapFillPercentage := dplyr::case_when(
+  Gap > 0 ~ (Low - Open) / Gap * 100,
+  Gap < 0 ~ (High - Open) / abs(Gap) * 100,
+  TRUE ~ NA_real_
+)]
+
+daily_data <- daily_data[abs(GapSizePercentage) > 0.1& abs(GapSizePercentage) <2, ]
+
+
+daily_data <- daily_data[!is.na(GapFillPercentage)]
+
+library(ggplot2)
+
+daily_data[, FillCategory := case_when(
+  Gap > 0 & GapFillPercentage < -100 ~ "Positive Gap, Fill < -100%",
+  Gap > 0 & GapFillPercentage >= -100 ~ "Positive Gap, Fill >= -100%",
+  Gap < 0 & GapFillPercentage > 100 ~ "Negative Gap, Fill > 100%",
+  Gap < 0 & GapFillPercentage <= 100 ~ "Negative Gap, Fill <= 100%",
+  TRUE ~ NA_character_
+)]
+
+
+ordered_categories <- c("Negative Gap, Fill < 100%", "Positive Gap, Fill < 100%", "Negative Gap, Fill >= 100%", "Positive Gap, Fill >= 100%")
+
+daily_data$Category <- factor(daily_data$Category, levels = ordered_categories)
+
+library(plotly)
+
+# 根据 FillCategory 计算每个类别的数量
+category_counts <- table(daily_data$FillCategory)
+
+# 创建一个交互式的饼图
+plot <- plot_ly(labels = names(category_counts), values = as.vector(category_counts), type = 'pie') %>%
+  layout(title = "Gap and Gap Fill Percentage Categories",
+         showlegend = T)
+
+plot
+
+```
+

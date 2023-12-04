@@ -1,0 +1,100 @@
+---
+title: "QQQ2gapfill"
+author: "Huiting"
+date: "2023-10-23"
+output: html_document
+---
+
+##QQQ Gap Fill Precentage Study
+
+```{r include=TRUE, echo=TRUE, message=FALSE, warning=FALSE}
+
+library(data.table)
+library(plotly)
+library(purrr)
+library(readr)
+library(magrittr)
+library(tidyr)
+library(dplyr)
+
+folder_path <- "G://trading/QQQ/"
+rds_file <- "G://trading/QQQ/all_data.rds"
+
+
+if (file.exists(rds_file)) {
+  all_data <- readRDS(rds_file)
+} else {
+  
+  all_files <- list.files(path = folder_path, pattern = "\\.csv$", full.names = TRUE)
+  
+  all_data <- map_df(all_files, read_csv)
+  
+  saveRDS(all_data, rds_file)
+}
+
+all_data <- as.data.table(all_data)
+
+
+all_data <- all_data[hour(Timestamp) >= 9 & (hour(Timestamp) < 16 | (hour(Timestamp) == 16 & minute(Timestamp) == 0))]
+
+setorder(all_data, Timestamp)
+
+
+daily_data <- all_data[, list(
+  Open = Open[1],
+  High = max(High),
+  Low = min(Low),
+  Close = Close[.N]
+), by = .(Date = as.Date(Timestamp))]
+
+daily_data <- daily_data %>%
+  mutate(
+    Gap = lead(Close) - Open,
+    GapSizePercentage = (Gap / lead(Close)) * 100,
+    GapFillPercentage = case_when(
+      Gap > 0 ~ (Low - Open) / Gap * 100,
+      Gap < 0 ~ (High - Open) / abs(Gap) * 100,
+      TRUE ~ NA_real_
+    ),
+    GapType = case_when(
+      Gap > 0 ~ "Positive Gap",
+      Gap < 0 ~ "Negative Gap",
+      TRUE ~ NA_character_
+    ),
+    FillType = case_when(
+      abs(GapFillPercentage) >= 100 ~ "Fill >= 100%",
+      abs(GapFillPercentage) < 100 ~ "Fill < 100%",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(GapType), !is.na(FillType))
+
+# Separate data for positive and negative gaps
+positive_gaps <- daily_data[Gap > 0, ]
+negative_gaps <- daily_data[Gap < 0, ]
+
+# Count the occurrences of each fill type for positive gaps
+positive_counts <- positive_gaps %>%
+  group_by(FillType) %>%
+  summarise(Count = n())
+
+# Count the occurrences of each fill type for negative gaps
+negative_counts <- negative_gaps %>%
+  group_by(FillType) %>%
+  summarise(Count = n())
+
+# Create a pie chart for positive gaps
+positive_pie <- plot_ly(positive_counts, labels = ~FillType, values = ~Count, type = 'pie', textinfo = 'label+percent') %>% 
+  layout(title = "Positive Gap Fill Percentage Distribution")
+
+# Create a pie chart for negative gaps
+negative_pie <- plot_ly(negative_counts, labels = ~FillType, values = ~Count, type = 'pie', textinfo = 'label+percent') %>% 
+  layout(title = "Negative Gap Fill Percentage Distribution")
+
+# Combine the two plots into one
+subplot(positive_pie, negative_pie, nrows = 1, shareX = TRUE, shareY = TRUE)
+```
+
+```{r}
+positive_pie
+```
